@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Shopify/sarama"
+	"github.com/datatyp/sarama"
 	kazoo "github.com/krallistic/kazoo-go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -76,6 +76,11 @@ type kafkaOpts struct {
 	uriZookeeper             []string
 	labels                   string
 	metadataRefreshInterval  string
+	keyTabPath               string
+	krb5DisablePAFXFAST      bool
+	krb5Realm                string
+	krb5ConfigPath           string
+	krb5ServiceName          string
 }
 
 // CanReadCertAndKey returns true if the certificate and key files already exists,
@@ -135,7 +140,20 @@ func NewExporter(opts kafkaOpts, topicFilter string, groupFilter string) (*Expor
 			config.Net.SASL.Password = opts.saslPassword
 		}
 	}
+	if opts.keyTabPath != "" {
+		config.Net.SASL.Mechanism = sarama.SASLTypeGSSAPI
+		config.Net.SASL.GSSAPI = sarama.GSSAPIConfig{
+			AuthType:           sarama.KRB5_KEYTAB_AUTH,
+			Realm:              opts.krb5Realm,
+			ServiceName:        opts.krb5ServiceName,
+			DisablePAFXFAST:    opts.krb5DisablePAFXFAST,
+			KeyTabPath:         opts.keyTabPath,
+			KerberosConfigPath: opts.krb5ConfigPath,
+			Username:           opts.saslUsername,
+			Password:           opts.saslPassword,
+		}
 
+	}
 	if opts.useTLS {
 		config.Net.TLS.Enable = true
 
@@ -491,11 +509,17 @@ func main() {
 	kingpin.Flag("zookeeper.server", "Address (hosts) of zookeeper server.").Default("localhost:2181").StringsVar(&opts.uriZookeeper)
 	kingpin.Flag("kafka.labels", "Kafka cluster name").Default("").StringVar(&opts.labels)
 	kingpin.Flag("refresh.metadata", "Metadata refresh interval").Default("30s").StringVar(&opts.metadataRefreshInterval)
+	kingpin.Flag("krb5.keytabpath", "Kerberos keytab file (enables krb5 auth)").Default("").StringVar(&opts.keyTabPath)
+	kingpin.Flag("krb5.realm", "Kerberos Realm").Default("").StringVar(&opts.krb5Realm)
+	kingpin.Flag("krb5.krb5configpath", "Path to krb5.conf").Default("/etc/krb5.conf").StringVar(&opts.krb5ConfigPath)
+	kingpin.Flag("krb5.servicename", "Name of kafka service").Default("kafka").StringVar(&opts.krb5ServiceName)
+	kingpin.Flag("krb5.disablepafxfast", "Disable PA FX FAST (to get krb5 auth to work with Active Directory)").Default("false").BoolVar(&opts.krb5DisablePAFXFAST)
 
 	plog.AddFlags(kingpin.CommandLine)
 	kingpin.Version(version.Print("kafka_exporter"))
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
+	fmt.Printf("keytabpath: %v\n", opts.keyTabPath)
 
 	plog.Infoln("Starting kafka_exporter", version.Info())
 	plog.Infoln("Build context", version.BuildContext())
